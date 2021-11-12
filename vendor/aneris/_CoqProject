@@ -1,0 +1,91 @@
+-Q theories aneris
+-Q trace_program_logic/theories trace_program_logic
+-Q vendor/record-update/src RecordUpdate
+
+-arg -w -arg -projection-no-head-constant
+-arg -w -arg -notation-overridden
+-arg -w -arg -redundant-canonical-projection
+-arg -w -arg -convert_concl_no_check
+-arg -w -arg -undeclared-scope
+-arg -w -arg -ambiguous-paths
+-arg -w -arg -ssr-search-moved
+
+theories/prelude/collect.v
+theories/prelude/gset_map.v
+theories/prelude/sig_gset.v
+theories/prelude/misc.v
+theories/prelude/gmultiset.v
+theories/prelude/quorum.v
+theories/prelude/strings.v
+theories/prelude/list.v
+theories/prelude/time.v
+
+theories/lib/dfrac_oneshot.v
+theories/lib/gen_heap_light.v
+
+theories/algebra/ballot.v
+theories/algebra/disj_gsets.v
+
+# DEFINITIONS
+theories/aneris_lang/ast.v
+theories/aneris_lang/network.v
+theories/aneris_lang/lang.v
+theories/aneris_lang/base_lang.v
+theories/aneris_lang/aneris_lang.v
+theories/aneris_lang/tactics.v
+theories/aneris_lang/resources.v
+theories/aneris_lang/events.v
+
+# STATE INTERPRETATION
+theories/aneris_lang/state_interp/messages_history.v
+theories/aneris_lang/state_interp/state_interp_def.v
+theories/aneris_lang/state_interp/state_interp_local_coh.v
+theories/aneris_lang/state_interp/state_interp_gnames_coh.v
+theories/aneris_lang/state_interp/state_interp_free_ips_coh.v
+theories/aneris_lang/state_interp/state_interp_socket_interp_coh.v
+theories/aneris_lang/state_interp/state_interp_network_sockets_coh.v
+theories/aneris_lang/state_interp/state_interp_messages_resource_coh.v
+theories/aneris_lang/state_interp/state_interp_messages_history_coh.v
+theories/aneris_lang/state_interp/state_interp_messages_history.v
+theories/aneris_lang/state_interp/state_interp_events.v
+theories/aneris_lang/state_interp/state_interp_config_wp.v
+theories/aneris_lang/state_interp/state_interp.v
+
+# PROGRAM LOGIC
+theories/aneris_lang/adequacy.v
+theories/aneris_lang/lifting.v
+theories/aneris_lang/program_logic/atomic.v
+theories/aneris_lang/program_logic/aneris_lifting.v
+theories/aneris_lang/program_logic/aneris_weakestpre.v
+theories/aneris_lang/program_logic/aneris_adequacy.v
+theories/aneris_lang/proofmode.v
+
+# CODE
+theories/aneris_lang/lib/list_code.v
+theories/aneris_lang/lib/set_code.v
+theories/aneris_lang/lib/map_code.v
+theories/aneris_lang/lib/queue_code.v
+theories/aneris_lang/lib/network_util_code.v
+theories/aneris_lang/lib/bag_code.v
+theories/aneris_lang/lib/nodup_code.v
+theories/aneris_lang/lib/serialization/serialization_code.v
+theories/aneris_lang/lib/coin_flip_code.v
+theories/aneris_lang/lib/vector_clock/vector_clock_code.v
+theories/aneris_lang/lib/spawn_code.v
+theories/aneris_lang/lib/par_code.v
+
+# PROOFS
+theories/aneris_lang/lib/pers_socket_proto.v
+theories/aneris_lang/lib/inject.v
+theories/aneris_lang/lib/nodepar.v
+theories/aneris_lang/lib/lock_proof.v
+theories/aneris_lang/lib/assert_proof.v
+theories/aneris_lang/lib/list_proof.v
+theories/aneris_lang/lib/set_proof.v
+theories/aneris_lang/lib/map_proof.v
+theories/aneris_lang/lib/network_util_proof.v
+theories/aneris_lang/lib/bag_proof.v
+theories/aneris_lang/lib/nodup_proof.v
+theories/aneris_lang/lib/serialization/serialization_proof.v
+theories/aneris_lang/lib/coin_flip_proof.v
+theories/aneris_lang/lib/vector_clock/vector_clock_proof.v

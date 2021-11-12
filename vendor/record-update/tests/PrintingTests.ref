@@ -1,0 +1,9 @@
+setA = fun (x : X) (n : nat) => x <| B := n |>
+     : X -> nat -> X
+updateA = 
+fun (x : X) (n : nat) => x <| B ::= Nat.add n |>
+     : X -> nat -> X
+setXB = fun n : Nested => n <| anX; B := 3 |>
+     : Nested -> Nested
+updateXB = fun n : Nested => n <| anX; B ::= S |>
+     : Nested -> Nested
