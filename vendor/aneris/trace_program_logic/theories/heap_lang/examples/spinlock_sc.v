@@ -73,7 +73,7 @@ Ltac my_st Hpthf :=
 Global Hint Extern 0 (PureExec _ _ _ _) => solve_pure_exec: core.
 Global Hint Extern 0 (vals_compare_safe _ _) => solve_vals_compare_safe: core.
 
-Section SpinlockCode.
+(* Section SpinlockCode. *)
 
   (* The standard spin lock code *)
   Definition newlock : val := λ: <>, ref #false.
@@ -91,17 +91,17 @@ Section SpinlockCode.
     (* "client" "l" ||| "client" "l".  *)
     ((Fork ("client" "l") ) ;; (Fork ("client" "l") )).
 
-End SpinlockCode.
+(* End SpinlockCode. *)
 
-Section SpinlockModel.
+(* Section SpinlockModel. *)
   
   (* Used as a role and piece of state *)
   Inductive thread_index := ti0 | ti1 | ti2.
 
-  Instance ti_eqdec: EqDecision thread_index.
+  Global Instance ti_eqdec: EqDecision thread_index.
   Proof. solve_decision. Qed.
 
-  Instance ti_countable: Countable thread_index. 
+  Global Instance ti_countable: Countable thread_index. 
   Proof.    
     refine ({|
                encode ti := match ti with | ti0 => 1 | ti1 => 2 | ti2 => 3 end;
@@ -112,7 +112,7 @@ Section SpinlockModel.
     intros yn. by destruct yn.
   Qed.
 
-  Instance ti_inhabited: Inhabited thread_index.
+  Global Instance ti_inhabited: Inhabited thread_index.
   Proof. exact (populate ti0). Qed.
 
 
@@ -199,42 +199,37 @@ Section SpinlockModel.
         rewrite union_assoc in IN * => IN.
         apply elem_of_union in IN as [? | IN]; auto.
         by apply elem_of_list_to_set, elem_of_list_singleton in IN. }
-  Qed.
+  Defined. 
         
-End SpinlockModel. 
+(* End SpinlockModel.  *)
 
-Section SpinlockCMRA.
-  (* Class lockG Σ := lock_G :> inG Σ (exclR unitR). *)
-  
-  (* Class spinlockG Σ := SpinlockG { *)
-  (*                       (* yes_name: gname; *) *)
-  (*                       (* no_name: gname; *) *)
-  (*                       (* yes_f_name: gname; *) *)
-  (*                       (* no_f_name: gname; *) *)
-  (*                       lockG :> inG Σ (excl_authR natO); *)
-  (*                     }. *)
+(* Section SpinlockCMRA. *)
+
   Class spinlockPreG Σ := {
-    lockG :> inG Σ (excl_authR natO);
+    lock_preG :> inG Σ (excl_authR natO);
   }.
-  
+  Class spinlockG Σ := {
+    lockG :> inG Σ (excl_authR natO);
+    lock_name: gname;
+  }.
+   
   Definition spinlockΣ : gFunctors :=
-    #[ heapΣ the_model; GFunctor (excl_authR natO) ].
+    #[ heapΣ spinlock_model; GFunctor (excl_authR natO) ].
   
-  Global Instance subG_yesnoΣ {Σ} : subG yesnoΣ Σ → yesnoPreG Σ.
+  Global Instance subG_spinlockΣ {Σ} : subG spinlockΣ Σ → spinlockPreG Σ.
   Proof. solve_inG. Qed.
-  
-  
-End SpinlockCMRA.   
+    
+(* End SpinlockCMRA.    *)
 
 Section proof_start.
-  Context `{!heapGS Σ the_model, !yesnoPreG Σ}.
+  Context `{!heapGS Σ spinlock_model, !spinlockPreG Σ}.
   Let Ns := nroot .@ "spinlock".
 
-  Lemma start_spec tid (N: nat) f (Hf: f > 40):
-    {{{ frag_model_is (N, true, true, true) ∗
-        has_fuels tid {[ Y; No ]} {[ Y := f; No := f ]} ∗
-        ⌜N > 0⌝ }}}
-      start #N @ tid
+  Lemma program_spec tid f (Hf: f > 10):
+    {{{ frag_model_is (Some ti0, [ti1; ti2]) ∗
+        has_fuels tid {[ ti0; ti1; ti2 ]} {[ ti0 := f; ti1 := f; ti2 := f ]}
+    }}}
+        alloc_lock_unlock_par2 @ tid
     {{{ RET #(); tid ↦M ∅ }}}.
   Proof using All.
     iIntros (Φ) "[Hst [Hf %HN]] Hkont". unfold start.
