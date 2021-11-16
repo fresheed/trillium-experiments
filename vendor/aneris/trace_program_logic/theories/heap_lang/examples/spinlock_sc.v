@@ -183,21 +183,24 @@ Section SpinlockModel.
           end;
         fuel_limit _ := 10%nat; (* don't know yet *)
              |}).
-    { do 2 econstructor. }
     { intros s ρ s' STEP. inversion STEP; subst.
-      2, 3: by apply elem_of_union_r, elem_of_list_to_set, elem_of_list_In.
-      by apply elem_of_union_l, elem_of_singleton_2. }
-    { intros ρ' s ρ s' STEP ENρ' NEQ. inversion STEP; subst.
+      - by apply elem_of_union_l, elem_of_singleton_2.
+      - subst tis0; apply elem_of_union_r, elem_of_list_to_set, elem_of_list_In; rewrite !in_app_iff; simpl; tauto. 
+      -  by apply elem_of_union_r, elem_of_list_to_set, elem_of_list_In. }
+    { intros ρ' s ρ s' STEP ENρ' NEQ. inversion STEP; subst; auto. 
       - apply elem_of_union in ENρ' as [EQ | ?].
-        + destruct NEQ. symmetry. eapply elem_of_singleton_1; eauto.
+        + by apply elem_of_singleton_1 in EQ. 
         + by apply elem_of_union_r.
-      - apply elem_of_union_r. subst rm_ti. apply elem_of_list_to_set.
-        apply elem_of_list_In, filter_In. split.
-        + apply elem_of_union in ENρ' as [C%not_elem_of_empty | ?].
-          * destruct C. 
-          [edestruct C|].
-          * 
-
+      - apply elem_of_union in ENρ' as [C%not_elem_of_empty | IN].
+        { by destruct C. }
+        subst tis tis0. apply elem_of_union_r. rewrite list_to_set_app.
+        repeat rewrite list_to_set_app in IN * => IN. (* TODO: syntax? *)
+        rewrite (union_comm (list_to_set [ρ]))  in IN  * => IN. 
+        rewrite union_assoc in IN * => IN.
+        apply elem_of_union in IN as [? | IN]; auto.
+        by apply elem_of_list_to_set, elem_of_list_singleton in IN. }
+  Qed.
+        
 End SpinlockModel. 
 
 Section SpinlockCMRA.
