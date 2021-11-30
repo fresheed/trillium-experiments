@@ -115,20 +115,6 @@ Global Hint Extern 0 (vals_compare_safe _ _) => solve_vals_compare_safe: core.
   Global Instance ti_inhabited: Inhabited thread_index.
   Proof. exact (populate ti0). Qed.
 
-
-  (* Definition spinlock_state := (nat * thread_index)%type.     *)
-
-  (* Inductive spinlock_model_step *)
-  (*   : spinlock_state -> option thread_index -> spinlock_state -> Prop := *)
-  (* | sm_alloc: *)
-  (*     spinlock_model_step (6, ti0) (Some ti0) (5, ti0) *)
-  (* | sm_lock_first (ti: thread_index) (TI12: (not (ti = ti0))) *)
-  (*            (* (TI12: (ti <> ti0)%type_scope) *) *)
-  (*   : *)
-  (*     spinlock_model_step (5, ti0) (Some ti) (4, ti) *)
-  (* | sm_unlock_first (ti: thread_index) (TI12: (not (ti = ti0))): *)
-  (*     spinlock_model_step (4, ti) (Some ti) (3, ti) *)
-
   (* See paper notes *)
   Definition spinlock_state := (option thread_index * list thread_index)%type.
 
@@ -145,29 +131,6 @@ Global Hint Extern 0 (vals_compare_safe _ _) => solve_vals_compare_safe: core.
   | sm_wait ti ti' tis_rem (NEQ: not (ti = ti')) (IN: In ti' tis_rem):
       spinlock_model_step (Some ti, tis_rem) (Some ti') (Some ti, tis_rem)
   .
-
-  (* Definition spinlock_live_roles (st: spinlock_state): gset spinlock_state := *)
-  (*   match st with *)
-  (*   | (cur, tis_rem) => *)
-  (*     (match cur with | Some ti => {[ ti ]} | None => ∅ end) ∪ (list_to_set tis_rem) *)
-  (*   end. *)
-     
-  (* Definition the_model: FairModel. *)
-  (* Proof. *)
-  (*   refine({| *)
-  (*             fmstate := nat * bool * bool * bool; *)
-  (*             fmrole := YN; *)
-  (*             fmtrans := yntrans; *)
-  (*             live_roles nb := *)
-  (*               match nb with *)
-  (*               | (_, _, yf, nf) => (if yf then {[ Y ]} else ∅) ∪ (if nf then {[ No ]} else ∅) *)
-  (*               end; *)
-  (*             fuel_limit _ := 45%nat; *)
-  (*             fm_live_spec := live_spec_holds; *)
-  (*           |}). *)
-  (*   intros ρ' [[[? ?] ?] ?] ρ [[[? ?] ?] ?] Htrans Hin Hneq. *)
-  (*   inversion Htrans; destruct ρ; try set_solver. *)
-  (* Defined. *)
 
   Definition spinlock_model: FairModel.
   Proof.
@@ -206,15 +169,20 @@ Global Hint Extern 0 (vals_compare_safe _ _) => solve_vals_compare_safe: core.
 (* Section SpinlockCMRA. *)
 
   Class spinlockPreG Σ := {
-    lock_preG :> inG Σ (excl_authR natO);
+    lock_preG :> inG Σ (exclR unitR);
+    cur_G :> inG Σ (excl_authR (optionO natO));
+    (* rems_G :> inG Σ (excl_authR boolO); *)
   }.
+  
   Class spinlockG Σ := {
-    lockG :> inG Σ (excl_authR natO);
-    lock_name: gname;
+    lockG :> inG Σ (exclR unitR);
+
+    cur_name: gname;
+    rems_name: gname
   }.
    
   Definition spinlockΣ : gFunctors :=
-    #[ heapΣ spinlock_model; GFunctor (excl_authR natO) ].
+    #[ heapΣ spinlock_model; GFunctor (exclR unitR) ].
   
   Global Instance subG_spinlockΣ {Σ} : subG spinlockΣ Σ → spinlockPreG Σ.
   Proof. solve_inG. Qed.
@@ -225,6 +193,71 @@ Section proof_start.
   Context `{!heapGS Σ spinlock_model, !spinlockPreG Σ}.
   Let Ns := nroot .@ "spinlock".
 
+  (* (* The lock invariant *) *)
+  (* Definition is_lock γ (v : val) (P: iProp Σ) := *)
+  (*   (∃ (ℓ : loc), ⌜v = #ℓ⌝ ∧ inv (lockN v) (ℓ ↦ #false ∗ P ∗ locked γ ∨ ℓ ↦ #true))%I. *)
+
+  (* (* The is_lock predicate is persistent *) *)
+  (* Global Instance is_lock_persistent γ l Φ : Persistent (is_lock γ l Φ). *)
+  (* Proof. *)
+  (*   (* Print Hint *.  *) *)
+  (*   (* what does this syntax mean? *) *)
+  (*   (* apply _. Show Proof. *) *)
+  (*   unfold is_lock. apply bi.exist_persistent. intros lc. *)
+  (*   apply bi.and_persistent. *)
+  (*   - apply bi.pure_persistent.  *)
+  (*   - apply inv_persistent. *)
+  (* Qed. *)
+
+  Definition locked (γ: gname): iProp Σ := own γ (Excl ()).
+  
+  Definition cur_auth (n: nat) := own yes_name (●E n).
+  Definition cur_frag (b: bool) := own yes_f_name (◯E b).
+  Definition no_finished (b: bool) := own no_f_name (◯E b).
+
+  Definition auth_yes_finished (b: bool) := own yes_f_name (●E b).
+  Definition auth_no_finished (b: bool) := own no_f_name (●E b).
+
+
+  Definition spinlock_inv_impl l γ P : iProp Σ :=
+    ∃ ti_opt tis,
+      (frag_model_is (ti_opt, tis) ∗
+       (l ↦ #false ∗ P ∗ locked γ ∗ ⌜ti_opt = None⌝
+        ∨ l ↦ #true ∗ (∃ ti, ⌜ti_opt = Some ti /\ not (In ti tis)⌝)))%I.
+
+  Definition spinlock_inv l γ P :=
+      inv Ns (spinlock_inv_impl l γ P).
+
+  Lemma acquire_terminates tid l γ P f (FUEL: f > 10) ti:
+    {{{ spinlock_inv l γ P ∗ has_fuel tid ti f }}}
+      acquire #l @ tid
+    {{{ RET #(); tid ↦M ∅  }}}.
+  Proof.
+    iLöb as "IH" forall (f FUEL). 
+    iIntros (Φ) "(#INV & FUEL) Kont".
+    rewrite {2}/acquire.
+
+    destruct f; [lia| ].
+    iApply wp_lift_pure_step_no_fork_singlerole; [done| ]. fold acquire.
+    do 3 iModIntro. iFrame.
+    iIntros "FUEL". simpl.
+
+    wp_bind (CmpXchg _ _ _).
+    iApply wp_atomic. 
+    iInv Ns as (ti_opt tis) "[>ST LOCK]" "Clos".
+      rewrite {1}/lock_inv_impl {1}/model_inv_impl.
+    iDestruct "LOCK" as "[LOCK|LOCK]". 
+    - 
+    
+  Lemma client_terminates tid l γ P sst f (FUEL: f > 10) ti:
+    {{{ spinlock_inv l γ P sst ∗ has_fuel tid ti f }}}
+      client #l @ tid
+    {{{ RET #(); tid ↦M ∅  }}}.
+  Proof.
+    iIntros (Φ) "(#INV & FUEL) Kont".
+    rewrite /client. 
+    
+  
   Lemma program_spec tid f (Hf: f > 10):
     {{{ frag_model_is (Some ti0, [ti1; ti2]) ∗
         has_fuels tid {[ ti0; ti1; ti2 ]} {[ ti0 := f; ti1 := f; ti2 := f ]}
@@ -232,102 +265,7 @@ Section proof_start.
         alloc_lock_unlock_par2 @ tid
     {{{ RET #(); tid ↦M ∅ }}}.
   Proof using All.
-    iIntros (Φ) "[Hst [Hf %HN]] Hkont". unfold start.
-    destruct f as [|f]; first lia.
-
-    iApply (wp_lift_pure_step_no_fork tid _ _ _ _ _ {[Y := f; No := f]} {[Y; No]});
-      [set_solver | eauto |].
-    do 3 iModIntro. iSplitL "Hf".
-    { unfold has_fuels_S.  eauto. rewrite !fmap_insert fmap_empty //=. }
-    iIntros "Hf". simpl.
-
-    destruct f as [|f]; first lia.
-    wp_bind (Alloc _).
-    iApply (wp_alloc_nostep _ _ _ _ {[Y; No]} {[Y := f; No := f]} with "[Hf]");
-      [set_solver | eauto |].
-    { unfold has_fuels_S.  eauto. rewrite !fmap_insert fmap_empty //=. }
-    iIntros "!>" (l) "(Hl & _ & Hf)".
-
-
-    destruct f as [|f]; first lia.
-    iApply (wp_lift_pure_step_no_fork tid _ _ _ _ _ {[Y := f; No := f]} {[Y; No]} True) ;
-      [set_solver | eauto | eauto |].
-    do 3 iModIntro. iSplitL "Hf".
-    { unfold has_fuels_S.  eauto. rewrite !fmap_insert fmap_empty //=. }
-    iIntros "Hf". simpl.
-
-    destruct f as [|f]; first lia.
-    iApply (wp_lift_pure_step_no_fork tid _ _ _ _ _ {[Y := f; No := f]} {[Y; No]} True) ; eauto; first set_solver.
-    do 3 iModIntro. iSplitL "Hf".
-    { unfold has_fuels_S.  eauto. rewrite !fmap_insert fmap_empty //=. }
-    iIntros "Hf". simpl.
-
-    (* Allocate the invariant. *)
-    iMod (own_alloc (●E N  ⋅ ◯E N)) as (γ_yes_at) "[Hyes_at_auth Hyes_at]".
-    { apply auth_both_valid_2; eauto. by compute. }
-    iMod (own_alloc (●E N  ⋅ ◯E N)) as (γ_no_at) "[Hno_at_auth Hno_at]".
-    { apply auth_both_valid_2; eauto. by compute. }
-    iMod (own_alloc (●E true  ⋅ ◯E true)) as (γ_yes_fin) "[Hyes_fin_auth Hyes_fin]".
-    { apply auth_both_valid_2; eauto. by compute. }
-    iMod (own_alloc (●E true  ⋅ ◯E true)) as (γ_no_fin) "[Hno_fin_auth Hno_fin]".
-    { apply auth_both_valid_2; eauto. by compute. }
-
-    pose (the_names := {|
-     yes_name := γ_yes_at;
-     yes_f_name := γ_yes_fin;
-     no_name := γ_no_at;
-     no_f_name := γ_no_fin;
-    |}).
-
-    iApply fupd_wp.
-    iMod (inv_alloc Ns _ (yesno_inv_inner l) with "[-Hkont Hf Hyes_at Hno_at Hyes_fin Hno_fin]") as "#Hinv".
-    { iNext. unfold yesno_inv_inner. iExists N, true, true, true.
-      iSplit; first done. iFrame. }
-    iModIntro.
-
-    wp_bind (Fork _).
-    destruct f as [|f]; first lia.
-    iApply (wp_fork_nostep _ tid _ _ _ {[ No ]} {[ Y ]} {[Y := f; No := f]} with "[Hyes_at Hyes_fin] [- Hf] [Hf]").
-    all: cycle 4.
-    { unfold has_fuels_S.  eauto. rewrite !fmap_insert fmap_empty //=.
-      rewrite insert_commute // union_comm_L //. }
-    { set_solver. }
-    { apply insert_non_empty. }
-    { iIntros (tid') "!> Hf". iApply (yes_spec _ _ _ f with "[-]"); eauto; first lia.
-      rewrite map_filter_insert; last set_solver.
-      rewrite map_filter_insert_not; last set_solver.
-      rewrite map_filter_empty insert_empty.
-      rewrite has_fuel_fuels. by iFrame "#∗". }
-
-    iIntros "!> Hf".
-    rewrite map_filter_insert_not; last set_solver.
-    rewrite map_filter_insert; last set_solver.
-    rewrite map_filter_empty insert_empty.
-
-    destruct f as [|f]; first lia.
-    iApply (wp_lift_pure_step_no_fork tid _ _ _ _ _ {[No := f]} {[No]} True) ; eauto; first set_solver.
-    do 3 iModIntro. iSplitL "Hf".
-    { unfold has_fuels_S.  eauto. rewrite !fmap_insert fmap_empty //=. }
-    iModIntro. iIntros "Hf". simpl.
-
-    destruct f as [|f]; first lia.
-    iApply (wp_lift_pure_step_no_fork tid _ _ _ _ _ {[No := f]} {[No]} True) ; eauto; first set_solver.
-    do 3 iModIntro. iSplitL "Hf".
-    { unfold has_fuels_S.  eauto. rewrite !fmap_insert fmap_empty //=. }
-    iIntros "Hf". simpl.
-
-    destruct f as [|f]; first lia.
-    iApply (wp_fork_nostep _ tid _ _ _ ∅ {[ No ]} {[No := f]} with "[Hno_at Hno_fin] [Hkont] [Hf]").
-    all: cycle 4.
-    { unfold has_fuels_S.  eauto. rewrite union_empty_l_L !fmap_insert fmap_empty //=. }
-    { set_solver. }
-    { apply insert_non_empty. }
-    { iIntros (tid') "!> Hf". iApply (no_spec _ _ _ f with "[-]"); eauto; first lia.
-      rewrite map_filter_insert; last set_solver.
-      rewrite map_filter_empty insert_empty.
-      rewrite has_fuel_fuels. by iFrame "#∗". }
-
-    iNext. iIntros "[Hf _]".
-    by iApply "Hkont".
+    
   Qed.
+  
 End proof_start.
