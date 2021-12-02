@@ -900,15 +900,66 @@ Proof.
     + iDestruct "Hfuel" as "[?_]". rewrite dom_empty_L //.
 Qed.
 
-Lemma wp_cmpxchg_suc_step_singlerole  s tid ρ (f1 f2: nat) s1 s2 E l v' v1 v2:
-  v' = v1 → vals_compare_safe v' v1 → f2 ≤ s2.(fuel_limit) -> Mdl.(fmtrans) s1 (Some ρ) s2 ->
+Lemma wp_store_step_singlerole s tid ρ (f1 f2: nat) s1 s2 E l v' v:
+  (* v' = v1 → *)
+  (* vals_compare_safe v' v1 → *)
+  f2 ≤ s2.(fuel_limit) ->
+  Mdl.(fmtrans) s1 (Some ρ) s2 ->
   live_roles _ s2 ⊆ live_roles _ s1 ->
+  
+  {{{ ▷ l ↦ v' ∗ ▷ frag_model_is s1 ∗ ▷ has_fuel tid ρ f1 }}}
+    Store (Val $ LitV $ LitLoc l) (Val v) @ s; tid; E
+  {{{ RET LitV LitUnit; l ↦ v ∗ frag_model_is s2 ∗
+      (if decide (ρ ∈ live_roles Mdl s2) then has_fuel tid ρ f2 else tid ↦M ∅ ) }}}.
+Proof.
+  iIntros (Hfl Htrans ? Φ) "(>Hl & >Hst & >Hfuel1) HΦ".
+  iApply wp_lift_atomic_head_step_no_fork; auto.
+  iIntros (extr atr K tp1 tp2 σ1 Hval Hexend Hloc) "[Hsi Hmi] !>".
+  iDestruct (@gen_heap_valid with "Hsi Hl") as %Hheap.
+  iSplit; first by rewrite Hexend // in Hheap;  eauto. iIntros "!>" (e2 σ2 efs Hstep).
+  rewrite Hexend in Hheap. inv_head_step.
+  iDestruct (model_agree' with "Hmi Hst") as %Hmeq.
+  (* rewrite bool_decide_true //. *)
+  iMod (@gen_heap_update with "Hsi Hl") as "[Hsi Hl]".
+  rewrite has_fuel_fuels Hexend.
+  iMod (update_step_still_alive _ _ _ _ _ _ _ _ _
+            (if decide (ρ ∈ live_roles Mdl s2) then {[ ρ := f2 ]} else ∅)
+            with "Hfuel1 Hst Hmi") as
+        (δ2 ℓ) "([%Hlab %Hvse] & Hfuel & Hst & Hmod)"; eauto.
+  - destruct (decide (ρ ∈ live_roles Mdl s2)); apply head_locale_step; econstructor =>//.
+  - destruct (decide (ρ ∈ live_roles Mdl s2)).
+    + split; first by intros _; rewrite lookup_singleton /=; lia.
+      split; first set_solver.
+      split.
+      { intros ρ' Hin. exfalso. rewrite dom_singleton_L  Hmeq in Hin. set_solver. }
+      split; set_solver.
+    + repeat (split; set_solver).
+  -
+    (* rewrite -> bool_decide_eq_true_2 in *; eauto. *)
+    iModIntro; iExists δ2, ℓ. iSplit.
+    { iPureIntro. simpl in *. split =>//. destruct Hvse as (?&?&?). split =>//.
+      }
+    iSplit; first done. iFrame. iApply "HΦ". iFrame.
+    destruct (decide (ρ ∈ live_roles Mdl s2)).
+    + rewrite has_fuel_fuels dom_singleton_L //.
+    + iDestruct "Hfuel" as "[?_]". rewrite dom_empty_L //.
+Qed.
+
+
+Lemma wp_cmpxchg_suc_step_singlerole s tid ρ (f1 f2: nat) s1 s2 E l v' v1 v2:
+  v' = v1 →
+  vals_compare_safe v' v1 →
+  f2 ≤ s2.(fuel_limit) ->
+  Mdl.(fmtrans) s1 (Some ρ) s2 ->
+  live_roles _ s2 ⊆ live_roles _ s1 ->
+  
   {{{ ▷ l ↦ v' ∗ ▷ frag_model_is s1 ∗ ▷ has_fuel tid ρ f1 }}}
     CmpXchg (Val $ LitV $ LitLoc l) (Val v1) (Val v2) @ s; tid; E
   {{{ RET PairV v' (LitV $ LitBool true); l ↦ v2 ∗ frag_model_is s2 ∗
       (if decide (ρ ∈ live_roles Mdl s2) then has_fuel tid ρ f2 else tid ↦M ∅ ) }}}.
 Proof.
-  iIntros (?? Hfl Htrans ? Φ) "(>Hl & >Hst & >Hfuel1) HΦ". iApply wp_lift_atomic_head_step_no_fork; auto.
+  iIntros (?? Hfl Htrans ? Φ) "(>Hl & >Hst & >Hfuel1) HΦ".
+  iApply wp_lift_atomic_head_step_no_fork; auto.
   iIntros (extr atr K tp1 tp2 σ1 Hval Hexend Hloc) "[Hsi Hmi] !>".
   iDestruct (@gen_heap_valid with "Hsi Hl") as %Hheap.
   iSplit; first by rewrite Hexend // in Hheap;  eauto. iIntros "!>" (e2 σ2 efs Hstep).
