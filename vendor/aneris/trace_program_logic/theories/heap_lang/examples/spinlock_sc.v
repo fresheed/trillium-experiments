@@ -84,7 +84,7 @@ Global Hint Extern 0 (vals_compare_safe _ _) => solve_vals_compare_safe: core.
   Definition release : val := λ: "l", "l" <- #false.
 
   Definition client : val :=
-    λ: "l", "acquire" "l" ;; "release" "l".
+    λ: "l", acquire "l" ;; release "l".
 
   (* Definition program : val := *)
   Definition alloc_lock_unlock_par2: expr :=
@@ -225,7 +225,9 @@ Section proof_start.
       frag_model_is st ∗ 
       ([∗ set] i ∈ list_to_set (seq 0 (length thread_gnames)), 
        ∃ v, ⌜st !! i = Some v⌝ ∗ thst_auth i v) ∗
-      ⌜length st = length thread_gnames⌝. 
+      ⌜length st = length thread_gnames⌝.
+
+  Definition locked γ := own γ (Excl ()).
        
   Definition lock_inv_impl v l γ P : iProp Σ :=
     l ↦ v ∗ (⌜v = #false⌝ ∗ P ∗ locked γ ∨ ⌜v = #true⌝).
@@ -430,7 +432,7 @@ Section proof_start.
   Lemma acquire_spec_term tid l γ P f (FUEL: f > 5) th:
     {{{ spinlock_inv l γ P ∗ has_fuel tid th f ∗ thst_frag th 0 }}}
       acquire #l @ tid
-    {{{ RET #(); P ∗ locked γ ∗ thst_frag th 1 }}}.
+    {{{ RET #(); P ∗ locked γ ∗ thst_frag th 1 ∗ ∃ f, has_fuel tid th f ∗ ⌜f > 4 ⌝}}}.
   Proof.
     iLöb as "IH" forall (f FUEL). 
     iIntros (Φ) "(#INV & FUEL & THST_FRAG) Kont".
@@ -483,7 +485,7 @@ Section proof_start.
            - lia. }
       iModIntro.
       do 2 (pure_step_burn_fuel f). 
-      iApply wp_value. iApply "Kont". iFrame.
+      iApply wp_value. iApply "Kont". iFrame. iExists _. iFrame. iPureIntro. lia.
     - iDestruct "LOCK" as "[>L [[>-> _] | >->]]"; [done| ].
       iApply ((wp_cmpxchg_fail_step_singlerole _ tid th _ 10%nat st st) with "[$]").
       all: eauto. 
@@ -545,10 +547,13 @@ Section proof_start.
     rewrite {2}/lock_inv_impl.
     
     iDestruct "LOCK" as "[(_ & _ & LOCKED') | LOCK]".
-    { (* iAssert ((▷ ⌜False⌝) -∗ ⌜False⌝)%I as "FL". *)
-
-      (* Exploit >False *)
-      admit. }
+    { iMod "LOCKED'".
+      rewrite /locked. iCombine "LOCKED LOCKED'" as "L'".
+      simpl.
+      rewrite /op /cmra_op /=  /excl_op_instance.
+      iDestruct (own_valid with "L'") as "%".
+      done. }
+    
     
     iDestruct "LOCK" as ">->".
     destruct CORR as [[? _] | [_ [i ST_LOCKED]]]; [done| ].
@@ -587,16 +592,29 @@ Section proof_start.
     iFrame. iSplitL; [by (iLeft; iFrame)|].
     rewrite /model_lock_corr_impl. iLeft. iPureIntro. split; auto. 
     apply state_becomes_unlocked; auto. lia.
-  Admitted. 
+  Qed. 
     
     
-  Lemma client_terminates tid l γ P sst f (FUEL: f > 10) ti:
-    {{{ spinlock_inv l γ P sst ∗ has_fuel tid ti f }}}
+  Lemma client_terminates tid l γ P f th (FUEL: f > 12) :
+    {{{ spinlock_inv l γ P ∗ has_fuel tid th f ∗ thst_frag th 0}}}
       client #l @ tid
     {{{ RET #(); tid ↦M ∅  }}}.
   Proof.
-    iIntros (Φ) "(#INV & FUEL) Kont".
-    rewrite /client. 
+    iIntros (Φ) "(#INV & FUEL & FRAG) Kont".
+    rewrite /client.
+    pure_step_burn_fuel f.
+    wp_bind (acquire #l)%E.
+    iApply (acquire_spec_term with "[-Kont]"). 
+    2: { by iFrame. }
+    { lia. }
+    clear dependent f. 
+    iNext. iIntros "(P & LOCKED & FRAG & [%f [FUEL %FUEL]])".
+    do 2 pure_step_burn_fuel f. 
+    iApply (release_spec_term with "[-Kont]").
+    2: { iFrame. iSplitR "P"; done. }
+    { lia. }
+    iNext. iIntros "[FIN FRAG]". by iApply "Kont".
+  Qed. 
     
   
   Lemma program_spec tid f (Hf: f > 10):
