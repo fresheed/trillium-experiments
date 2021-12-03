@@ -613,18 +613,12 @@ Section ClientProofs.
   Definition fuels_ge (fs: gmap (fmrole spinlock_model) nat) b :=
     forall ρ f (FUEL: fs !! ρ = Some f), f >= b. 
     
-  Lemma has_fuels_ge_S tid ths (fs: gmap (fmrole spinlock_model) nat) b
+  Lemma has_fuels_ge_S_exact b tid ths (fs: gmap (fmrole spinlock_model) nat)
         (FUELS_GE: fuels_ge fs (S b)):
-    has_fuels tid ths fs -∗ ∃ fs', has_fuels_S tid ths fs' ∗ ⌜fuels_ge fs' b⌝.
+    has_fuels tid ths fs -∗
+    has_fuels_S tid ths (fmap (fun f => f - 1) fs). 
   Proof.
     iIntros "FUELS".
-    iExists (fmap (fun f => f - 1) fs). iSplitL.
-    2: { iPureIntro. red. intros.
-         pose proof (elem_of_dom_2 _ _ _ FUEL) as DOM.
-         rewrite dom_fmap_L in DOM.
-         simpl in FUEL.
-         apply lookup_fmap_Some in FUEL as (f' & <- & FUEL).
-         red in FUELS_GE. specialize (FUELS_GE _ _ FUEL). lia. }
     rewrite /has_fuels_S /has_fuels.
     iDestruct "FUELS" as "(? & %DOM & FUELS)". iFrame. iSplitR.
     { iPureIntro. by do 2 rewrite dom_fmap_L. }
@@ -636,31 +630,72 @@ Section ClientProofs.
     apply lookup_fmap_Some. eauto.
   Qed.    
     
-  Lemma newlock_spec tid P ths fs (THSn0: ths ≠ ∅) (FUELS: fuels_ge fs 20):
-    {{{ P ∗ has_fuels tid ths fs}}}
-      newlock #() @ tid
-    {{{ l, RET l; ∃ v l γ, lock_inv_impl v l γ P ∗
-                           (∃ fs, has_fuels tid ths fs ∗ ⌜fuels_ge fs 18⌝)}}}.
+  Lemma has_fuels_ge_S b tid ths (fs: gmap (fmrole spinlock_model) nat)
+        (FUELS_GE: fuels_ge fs (S b)):
+    has_fuels tid ths fs -∗ ∃ fs', has_fuels_S tid ths fs' ∗ ⌜fuels_ge fs' b⌝.
   Proof.
-    iIntros (Φ) "[P FUELS] Kont". rewrite /newlock.
+    iIntros "FUELS".
+    iDestruct (has_fuels_ge_S_exact with "FUELS") as "FUELS"; eauto.
+    iExists _. iFrame. 
+    iPureIntro. red. intros.
+    pose proof (elem_of_dom_2 _ _ _ FUEL) as DOM.
+    rewrite dom_fmap_L in DOM.
+    simpl in FUEL.
+    apply lookup_fmap_Some in FUEL as (f' & <- & FUEL).
+    red in FUELS_GE. specialize (FUELS_GE _ _ FUEL). lia. 
+  Qed.
+    
+  (* Lemma newlock_spec tid P (ths: list (fmrole spinlock_model)) fs *)
+  (*       (THSn0: ths ≠ []) (FUELS: fuels_ge fs 20): *)
+  (*   {{{ P ∗ has_fuels tid (list_to_set ths) fs ∗ *)
+  (*         frag_model_is (repeat 0 (length thread_gnames)) }}} *)
+  (*     newlock #() @ tid *)
+  (*   {{{ l, RET #l; ∃ γ, spinlock_inv l γ P ∗ *)
+  (*                  (∃ fs, has_fuels tid (list_to_set ths) fs ∗  *)
+  (*                         ⌜fuels_ge fs 18⌝)  }}}. *)
+  (* Proof. *)
+  (*   iIntros (Φ) "(P & FUELS & ST) Kont". rewrite /newlock. *)
+  (*   remember (list_to_set ths) as ths_set. *)
+  (*   assert (ths_set ≠ ∅) as THSn0'. *)
+  (*   { subst. destruct ths; [done| ].  *)
+  (*     apply (non_empty_inhabited_L f). set_solver. } *)
 
-    iDestruct (has_fuels_ge_S with "FUELS") as "[%fs' [FUELS' %GE']]"; eauto. 
-    iApply wp_lift_pure_step_no_fork'; eauto. 
-    do 3 iModIntro. simpl. 
-    iFrame. clear dependent fs. iIntros "FUELS".
+  (*   iDestruct (has_fuels_ge_S with "FUELS") as "[%fs' [FUELS' %GE']]"; eauto.  *)
+  (*   iApply wp_lift_pure_step_no_fork'; eauto.  *)
+  (*   do 3 iModIntro. simpl.  *)
+  (*   iFrame. clear dependent fs. iIntros "FUELS". *)
     
-    iMod (own_alloc (Excl ())) as (γ) "LOCK"; [done| ].
+  (*   iMod (own_alloc (Excl ())) as (γ) "LOCK"; [done| ]. *)
+
+  (*   iDestruct (has_fuels_ge_S with "FUELS") as "[%fs [FUELS %GE]]"; eauto.  *)
+  (*   (* TODO: fupd in goal is needed to create invariant *) *)
+  (*   wp_bind (Alloc _)%E.  *)
+  (*   iApply (wp_alloc_nostep with "[FUELS]"); eauto. *)
+
+  (*   iNext. iIntros (l) "(L & _ & FUELS)".  *)
+
+  (*   (* (* TODO: resources disappear? *) *) *)
+  (*   (* (* iApply (fupd_mono with "[-Kont]"). *) *) *)
     
-    iDestruct (has_fuels_ge_S with "FUELS") as "[%fs [FUELS %GE]]"; eauto. 
-    iApply (wp_alloc_nostep with "[FUELS]"); eauto. 
+  (*   iApply fupd_wp. *)
+  (*   iMod (inv_alloc Ns _ (∃ v st, model_inv_impl st ∗ lock_inv_impl v l γ P ∗ *)
+  (*                                                model_lock_corr_impl v st)%I with "[-Kont]") as "INV". *)
+  (*   { iNext. rewrite /model_inv_impl /lock_inv_impl /model_lock_corr_impl.   *)
+
     
-    iNext. iIntros (l) "(L & _ & FUELS)".
-    iApply "Kont". rewrite /lock_inv_impl.
-    do 3 iExists _.
-    iFrame. iSplitR "FUELS".
-    { iLeft. by iFrame. }
-    eauto. 
-  Qed. 
+  (*   iApply "Kont". iExists γ. *)
+  (*   iSplitR "FUELS". *)
+  (*   2: { iExists _. by iFrame. } *)
+
+
+    
+  (*   rewrite /spinlock_inv. *)
+    
+    
+  (*   do 2 iExists _. *)
+  (*   iFrame. *)
+  (*   eauto.  *)
+  (* Qed.  *)
       
 End ClientProofs.
 
@@ -673,23 +708,130 @@ Section MainProof.
     let: "l" := newlock #() in
     ((Fork (client "l") ) ;; (Fork (client "l") )).
 
-  (* Context `. *)
+  Lemma newlock_spec tid P (ths: list (fmrole spinlock_model)) fs
+        (THSn0: ths ≠ []) (FUELS: fuels_ge fs 20):
+    {{{ P ∗ has_fuels tid (list_to_set ths) fs ∗
+          frag_model_is (repeat 0 (length ths)) }}}
+      newlock #() @ tid
+    {{{ l, RET #l; ∃ γ (slG: spinlockG Σ),
+          spinlock_inv l γ P ∗
+          ([∗ set] i ∈ list_to_set (seq 0 (length ths)), thst_frag i 0) ∗
+          (* (∃ fs, has_fuels tid (list_to_set ths) fs ∗ ⌜fuels_ge fs 18⌝) }}}. *)
+          (has_fuels tid (list_to_set ths) ((fun f => f - 2) <$> fs)) }}}.
+  Proof. Admitted.
 
+  Lemma has_fuels_equiv_args tid (R1 R2: gset (fmrole spinlock_model))
+        (FS1 FS2: gmap (fmrole spinlock_model) nat)
+        (REQ: R1 ≡ R2) (FSEQ: FS1 ≡ FS2):
+    has_fuels tid R1 FS1 -∗ has_fuels tid R2 FS2.
+  Proof.
+    apply leibniz_equiv in REQ. apply leibniz_equiv in FSEQ. subst. auto. 
+  Qed. 
+
+  (* TODO: merge with previous *)
+  Ltac pure_step_burn_fuel_impl :=
+    iApply wp_lift_pure_step_no_fork_singlerole; auto;
+    do 3 iModIntro; iFrame; iIntros "FUEL"; simpl.
+
+  Ltac pure_step_burn_fuel f := destruct f; [lia| ]; pure_step_burn_fuel_impl. 
   
-  Lemma program_spec tid f (BOUND: f > 20):
-    {{{ frag_model_is [0; 0] ∗
-        has_fuels tid {[ 0; 1 ]} {[ 0 := f; 1 := f ]}
-    }}}
-        program @ tid
+  Lemma program_spec tid (P: iProp Σ):
+    (* {{{ frag_model_is [0; 0] ∗ has_fuels tid {[ 0; 1 ]} fs ∗ P }}} *)
+    {{{ frag_model_is [0; 0] ∗ P ∗ 
+      has_fuels tid {[0; 1]} {[ 0:=25; 1:=25 ]} }}}
+      program @ tid
     {{{ RET #(); tid ↦M ∅ }}}.
   Proof using All.
-    iIntros (Φ) "[MODEL FUELS] Kont". rewrite /program.
-    wp_bind (newlock #())%E.
-    iApply (newlock_spec
-    destruct f as [|f]; [lia| ]. 
-            
+    iIntros (Φ) "(ST & P & FUELS) Kont". rewrite /program.
 
+    wp_bind (newlock #())%E.
+    iApply (newlock_spec tid P [0; 1] with "[P FUELS ST]"); eauto.
+    2: { iFrame. iApply has_fuels_equiv_args; last by iFrame.
+         - set_solver.
+         - reflexivity. }
+    { admit. }
+
+    iNext. iIntros (l) "(%γ & %slG & (#INV & FRAGS & FUELS))".
+    repeat rewrite fmap_insert. simpl. rewrite fmap_empty. simpl.   
+
+    (* Ltac pure_step_burn_fuel' fs roles := *)
+    (*   iDestruct (has_fuels_ge_S with "FUELS") as "[%fs' [FUELS' %GE']]"; eauto; *)
+    (*   iApply (wp_lift_pure_step_no_fork' _ _ _ _ _ _ _ _ _roles); eauto;  *)
+    (*   do 3 iModIntro; simpl; *)
+    (*   iFrame; clear dependent fs; iIntros "FUELS";  *)
+    (*   rename fs' into fs; rename GE' into GE. *)
+    (* pure_step_burn_fuel' fs ({[0; 1]}: gset (fmrole spinlock_model)).  *)
+
+    iDestruct ((has_fuels_ge_S_exact 22) with "FUELS") as "FUELS"; eauto.
+    { admit. }
+    repeat rewrite fmap_insert. simpl. rewrite fmap_empty. simpl.   
+    iApply (wp_lift_pure_step_no_fork' _ _ _ _ _ _ _ _ {[0; 1]}); eauto.
+    do 3 iModIntro. iSimpl. 
+    iFrame. iIntros "FUELS".
+
+    iDestruct ((has_fuels_ge_S_exact 21) with "FUELS") as "FUELS"; eauto.
+    { admit. }
+    repeat rewrite fmap_insert. simpl. rewrite fmap_empty. simpl.
+    iApply (wp_lift_pure_step_no_fork' _ _ _ _ _ _ _ _ {[0; 1]}); eauto.
+    do 3 iModIntro. iSimpl. 
+    iFrame. iIntros "FUELS".
+
+    iDestruct (big_sepS_insert with "FRAGS") as "[FRAG0 FRAGS]"; [set_solver| ]. 
+    iDestruct (big_sepS_insert with "FRAGS") as "[FRAG1 _]"; [set_solver| ]. 
+
+    wp_bind (Fork _)%E.
+
+    iDestruct ((has_fuels_ge_S_exact 20) with "FUELS") as "FUELS"; eauto.
+    { admit. }
+    repeat rewrite fmap_insert. simpl. rewrite fmap_empty. simpl.
     
+    iApply (wp_fork_nostep _ tid _ _ _ {[ 1 ]} {[ 0 ]} _ with "[FRAG0] [-FUELS] [FUELS]").
+    5: { rewrite /has_fuels_S.
+         iApply has_fuels_equiv_args; last (by iFrame); set_solver. }
+    { set_solver. }
+    { done. }
+    { iIntros (tid0).
+      iNext. iIntros "FUEL".
+      rewrite map_filter_insert; last set_solver.
+      rewrite map_filter_insert_not; last set_solver.
+      rewrite map_filter_empty insert_empty.
+      iApply (client_terminates with "[-]"); last by auto. 
+      2: { iFrame. iSplitR; [by iApply "INV"| ].
+           iApply has_fuel_fuels. iFrame. }
+      lia. }
+
+    (* TODO: unify these proofs *)
     
+    iNext. iIntros "FUEL".
+    iModIntro.
+
+    rewrite map_filter_insert_not; last set_solver.    
+    rewrite map_filter_insert; last set_solver.
+    rewrite map_filter_empty insert_empty.
+    
+    iDestruct (has_fuel_fuels with "FUEL") as "FUEL".
+    do 2 pure_step_burn_fuel_impl. 
+
+    (* TODO: unify even more*)
+    iApply (wp_fork_nostep _ tid _ _ _ ∅ {[ 1 ]} {[1 := 17]} with "[FRAG1] [-FUEL] [FUEL]").
+    5: { rewrite /has_fuels_S.
+         iApply has_fuels_equiv_args.
+         3: { iApply has_fuel_fuels. iFrame. }
+         { set_solver. }
+         rewrite fmap_insert fmap_empty. set_solver. }
+    { set_solver. }
+    { done. }
+    { iIntros (tid0).
+      iNext. iIntros "FUEL".
+      rewrite map_filter_insert; last set_solver.
+      rewrite map_filter_empty insert_empty.
+      iApply (client_terminates with "[-]"); last by auto. 
+      2: { iFrame. iSplitR; [by iApply "INV"| ].
+           iApply has_fuel_fuels. iFrame. }
+      lia. }
+
+    iNext. iIntros "FUELS". iModIntro. iApply "Kont".
+    rewrite /has_fuels. by iDestruct "FUELS" as "[? _]". 
+
   Qed.
   
