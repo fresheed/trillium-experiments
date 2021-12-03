@@ -73,7 +73,7 @@ Ltac my_st Hpthf :=
 Global Hint Extern 0 (PureExec _ _ _ _) => solve_pure_exec: core.
 Global Hint Extern 0 (vals_compare_safe _ _) => solve_vals_compare_safe: core.
 
-(* Section SpinlockCode. *)
+Section SpinlockDefs. 
 
 
   (* The standard spin lock code *)
@@ -85,12 +85,6 @@ Global Hint Extern 0 (vals_compare_safe _ _) => solve_vals_compare_safe: core.
 
   Definition client : val :=
     λ: "l", acquire "l" ;; release "l".
-
-  (* Definition program : val := *)
-  Definition alloc_lock_unlock_par2: expr :=
-    let: "l" := "newlock" #() in
-    (* "client" "l" ||| "client" "l".  *)
-    ((Fork ("client" "l") ) ;; (Fork ("client" "l") )).
 
 (* End SpinlockCode. *)
 
@@ -204,9 +198,9 @@ Global Hint Extern 0 (vals_compare_safe _ _) => solve_vals_compare_safe: core.
   Global Instance subG_spinlockΣ {Σ} : subG spinlockΣ Σ → spinlockPreG Σ.
   Proof. solve_inG. Qed.
     
-(* End SpinlockCMRA.    *)
+End SpinlockDefs. 
 
-Section proof_start.
+Section ClientProofs.
   Context `{!heapGS Σ spinlock_model, !spinlockG Σ}.
   Let Ns := nroot .@ "spinlock".
 
@@ -614,17 +608,88 @@ Section proof_start.
     2: { iFrame. iSplitR "P"; done. }
     { lia. }
     iNext. iIntros "[FIN FRAG]". by iApply "Kont".
-  Qed. 
+  Qed.
+
+  Definition fuels_ge (fs: gmap (fmrole spinlock_model) nat) b :=
+    forall ρ f (FUEL: fs !! ρ = Some f), f >= b. 
     
+  Lemma has_fuels_ge_S tid ths (fs: gmap (fmrole spinlock_model) nat) b
+        (FUELS_GE: fuels_ge fs (S b)):
+    has_fuels tid ths fs -∗ ∃ fs', has_fuels_S tid ths fs' ∗ ⌜fuels_ge fs' b⌝.
+  Proof.
+    iIntros "FUELS".
+    iExists (fmap (fun f => f - 1) fs). iSplitL.
+    2: { iPureIntro. red. intros.
+         pose proof (elem_of_dom_2 _ _ _ FUEL) as DOM.
+         rewrite dom_fmap_L in DOM.
+         simpl in FUEL.
+         apply lookup_fmap_Some in FUEL as (f' & <- & FUEL).
+         red in FUELS_GE. specialize (FUELS_GE _ _ FUEL). lia. }
+    rewrite /has_fuels_S /has_fuels.
+    iDestruct "FUELS" as "(? & %DOM & FUELS)". iFrame. iSplitR.
+    { iPureIntro. by do 2 rewrite dom_fmap_L. }
+    iApply (big_sepS_impl with "[-]"); [by iFrame| ].
+    iModIntro. iIntros (ρ) "%DOMρ [%f [%TT Fρ]]".
+    iExists _. iFrame. iPureIntro.
+    apply lookup_fmap_Some. exists (f - 1). split.
+    { red in FUELS_GE. specialize (FUELS_GE _ _ TT). lia. }
+    apply lookup_fmap_Some. eauto.
+  Qed.    
+    
+  Lemma newlock_spec tid P ths fs (THSn0: ths ≠ ∅) (FUELS: fuels_ge fs 20):
+    {{{ P ∗ has_fuels tid ths fs}}}
+      newlock #() @ tid
+    {{{ l, RET l; ∃ v l γ, lock_inv_impl v l γ P ∗
+                           (∃ fs, has_fuels tid ths fs ∗ ⌜fuels_ge fs 18⌝)}}}.
+  Proof.
+    iIntros (Φ) "[P FUELS] Kont". rewrite /newlock.
+
+    iDestruct (has_fuels_ge_S with "FUELS") as "[%fs' [FUELS' %GE']]"; eauto. 
+    iApply wp_lift_pure_step_no_fork'; eauto. 
+    do 3 iModIntro. simpl. 
+    iFrame. clear dependent fs. iIntros "FUELS".
+    
+    iMod (own_alloc (Excl ())) as (γ) "LOCK"; [done| ].
+    
+    iDestruct (has_fuels_ge_S with "FUELS") as "[%fs [FUELS %GE]]"; eauto. 
+    iApply (wp_alloc_nostep with "[FUELS]"); eauto. 
+    
+    iNext. iIntros (l) "(L & _ & FUELS)".
+    iApply "Kont". rewrite /lock_inv_impl.
+    do 3 iExists _.
+    iFrame. iSplitR "FUELS".
+    { iLeft. by iFrame. }
+    eauto. 
+  Qed. 
+      
+End ClientProofs.
+
+
+Section MainProof.
+  Context `{!heapGS Σ spinlock_model, !spinlockPreG Σ}.
+  Let Ns := nroot .@ "spinlock".
+
+  Definition program: expr :=
+    let: "l" := newlock #() in
+    ((Fork (client "l") ) ;; (Fork (client "l") )).
+
+  (* Context `. *)
+
   
-  Lemma program_spec tid f (Hf: f > 10):
-    {{{ frag_model_is (Some ti0, [ti1; ti2]) ∗
-        has_fuels tid {[ ti0; ti1; ti2 ]} {[ ti0 := f; ti1 := f; ti2 := f ]}
+  Lemma program_spec tid f (BOUND: f > 20):
+    {{{ frag_model_is [0; 0] ∗
+        has_fuels tid {[ 0; 1 ]} {[ 0 := f; 1 := f ]}
     }}}
-        alloc_lock_unlock_par2 @ tid
+        program @ tid
     {{{ RET #(); tid ↦M ∅ }}}.
   Proof using All.
+    iIntros (Φ) "[MODEL FUELS] Kont". rewrite /program.
+    wp_bind (newlock #())%E.
+    iApply (newlock_spec
+    destruct f as [|f]; [lia| ]. 
+            
+
+    
     
   Qed.
   
-End proof_start.
