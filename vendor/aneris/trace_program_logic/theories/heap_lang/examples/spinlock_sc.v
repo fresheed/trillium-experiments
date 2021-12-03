@@ -733,8 +733,20 @@ Section MainProof.
     iApply wp_lift_pure_step_no_fork_singlerole; auto;
     do 3 iModIntro; iFrame; iIntros "FUEL"; simpl.
 
-  Ltac pure_step_burn_fuel f := destruct f; [lia| ]; pure_step_burn_fuel_impl. 
-  
+  Ltac pure_step_burn_fuel f := destruct f; [lia| ]; pure_step_burn_fuel_impl.
+
+  Lemma fuels_ge_helper fs b th f (REC: fuels_ge fs b) (GE: f >= b):
+    fuels_ge (<[th:=f]> fs) b.
+  Proof.
+    unfold fuels_ge. intros.
+    pose proof FUEL as FUEL_. apply elem_of_dom_2 in FUEL.
+    destruct (dec_eq_nat ρ th) as [-> | NEQ]. 
+    { rewrite lookup_insert in FUEL_. congruence. }
+    rewrite dom_insert_L in FUEL. apply elem_of_union in FUEL as [DOM | DOM].
+    { by apply elem_of_singleton_1 in DOM. }
+    rewrite lookup_insert_ne in FUEL_; eauto.  
+  Qed. 
+    
   Lemma program_spec tid (P: iProp Σ):
     (* {{{ frag_model_is [0; 0] ∗ has_fuels tid {[ 0; 1 ]} fs ∗ P }}} *)
     {{{ frag_model_is [0; 0] ∗ P ∗ 
@@ -749,40 +761,35 @@ Section MainProof.
     2: { iFrame. iApply has_fuels_equiv_args; last by iFrame.
          - set_solver.
          - reflexivity. }
-    { admit. }
+    { do 2 (apply fuels_ge_helper; [| lia]). done. }
 
     iNext. iIntros (l) "(%γ & %slG & (#INV & FRAGS & FUELS))".
     repeat rewrite fmap_insert. simpl. rewrite fmap_empty. simpl.   
 
-    (* Ltac pure_step_burn_fuel' fs roles := *)
-    (*   iDestruct (has_fuels_ge_S with "FUELS") as "[%fs' [FUELS' %GE']]"; eauto; *)
-    (*   iApply (wp_lift_pure_step_no_fork' _ _ _ _ _ _ _ _ _roles); eauto;  *)
-    (*   do 3 iModIntro; simpl; *)
-    (*   iFrame; clear dependent fs; iIntros "FUELS";  *)
-    (*   rename fs' into fs; rename GE' into GE. *)
-    (* pure_step_burn_fuel' fs ({[0; 1]}: gset (fmrole spinlock_model)).  *)
-
     iDestruct ((has_fuels_ge_S_exact 22) with "FUELS") as "FUELS"; eauto.
-    { admit. }
+    { do 2 (apply fuels_ge_helper; [| lia]). done. }
     repeat rewrite fmap_insert. simpl. rewrite fmap_empty. simpl.   
     iApply (wp_lift_pure_step_no_fork' _ _ _ _ _ _ _ _ {[0; 1]}); eauto.
+    
     do 3 iModIntro. iSimpl. 
     iFrame. iIntros "FUELS".
+    Unshelve. all: try by eauto.  (* TODO: get rid of *)
 
     iDestruct ((has_fuels_ge_S_exact 21) with "FUELS") as "FUELS"; eauto.
-    { admit. }
+    { do 2 (apply fuels_ge_helper; [| lia]). done. }
     repeat rewrite fmap_insert. simpl. rewrite fmap_empty. simpl.
     iApply (wp_lift_pure_step_no_fork' _ _ _ _ _ _ _ _ {[0; 1]}); eauto.
     do 3 iModIntro. iSimpl. 
     iFrame. iIntros "FUELS".
-
+    Unshelve. all: try by eauto.  (* TODO: get rid of *)
+    
     iDestruct (big_sepS_insert with "FRAGS") as "[FRAG0 FRAGS]"; [set_solver| ]. 
     iDestruct (big_sepS_insert with "FRAGS") as "[FRAG1 _]"; [set_solver| ]. 
 
     wp_bind (Fork _)%E.
 
     iDestruct ((has_fuels_ge_S_exact 20) with "FUELS") as "FUELS"; eauto.
-    { admit. }
+    { do 2 (apply fuels_ge_helper; [| lia]). done. }
     repeat rewrite fmap_insert. simpl. rewrite fmap_empty. simpl.
     
     iApply (wp_fork_nostep _ tid _ _ _ {[ 1 ]} {[ 0 ]} _ with "[FRAG0] [-FUELS] [FUELS]").
@@ -811,7 +818,7 @@ Section MainProof.
     
     iDestruct (has_fuel_fuels with "FUEL") as "FUEL".
     do 2 pure_step_burn_fuel_impl. 
-
+    
     (* TODO: unify even more*)
     iApply (wp_fork_nostep _ tid _ _ _ ∅ {[ 1 ]} {[1 := 17]} with "[FRAG1] [-FUEL] [FUEL]").
     5: { rewrite /has_fuels_S.
