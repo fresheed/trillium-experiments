@@ -204,11 +204,6 @@ Section ClientProofs.
   Context `{!heapGS Σ spinlock_model, !spinlockG Σ}.
   Let Ns := nroot .@ "spinlock".
 
-  (* Notation "'[∗' 'set]' x ∈ X , P" := (big_opS bi_sep (λ x, P%I) X) : bi_scope. *)
-  (* From iris.algebra Require Import gset.  *)
-  (* Lemma big_sep_set_test (n: nat): *)
-  (*   ⊢ ([∗ set] x ∈ list_to_set (seq 0 n), ⌜True⌝)%I.  *)
-
   Definition thst_auth (i v: nat): iProp Σ :=
     ∃ (tgn: gname), ⌜thread_gnames !! i = Some tgn⌝ ∗ own tgn (●E v).
 
@@ -708,6 +703,42 @@ Section MainProof.
     let: "l" := newlock #() in
     ((Fork (client "l") ) ;; (Fork (client "l") )).
 
+  (* Lemma fmap_comp (g1 g2: nat -> nat) (fs: gmap (fmrole spinlock_model) nat): *)
+  (*   g1 <$> (g2 <$> fs) = (fun n => g1 (g2 n)) <$> fs. *)
+  (* Proof. *)
+  (*   apply gmap_eq. unfold gmap_car. simpl.  *)
+  (*   apply leibniz_equiv. red. red. intros ρ. red. red.  *)
+
+  Definition m1 := fun (f: nat) => f - 1.
+
+  (* TODO: use set_seq instead of list_to_set *)
+  Lemma thread_gnames_allocation n:
+    ⊢ (|==> ∃ (tgns: list gname), ⌜length tgns = n⌝ ∗
+        ([∗ set] i ∈ list_to_set (seq 0 n), 
+         ∃ γ, ⌜tgns !! i = Some γ⌝ ∗ own γ (●E 0) ∗ own γ (◯E 0)))%I.
+  Proof.
+    iInduction n as [| n'] "IH".
+    { iModIntro. iExists []. iSplit; done. }
+    iMod (own_alloc (●E 0  ⋅ ◯E 0)) as (γ) "[AUTH FRAG]".
+    { apply auth_both_valid_2; eauto. by compute. }
+    iMod "IH" as (tgns) "[%LEN IH]". iModIntro.
+    (* appending to the end to obtain the same domain and reuse IH *)
+    (* TODO: problems with appending to the head and/or big_sepS_forall *)
+    iExists (tgns ++ [γ]). iSplitL "".
+    { iPureIntro. rewrite app_length. simpl. lia. }
+    rewrite seq_S list_to_set_app_L. simpl. rewrite union_empty_r_L.
+    iApply big_sepS_union.
+    { symmetry. rewrite list_to_set_seq. set_solver by lia. }
+    iSplitL "IH".
+    { iApply (big_sepS_impl with "IH"). iModIntro.
+      iIntros (i DOM) "[%γ' (%ITH & ? & ?)]".
+      iExists _. iFrame. iPureIntro.
+      rewrite lookup_app_l; auto. by apply lookup_lt_Some in ITH. }
+    iApply big_sepS_singleton.
+    iExists _. iFrame. iPureIntro. rewrite lookup_app_r; [| lia].
+    by rewrite LEN PeanoNat.Nat.sub_diag. 
+  Qed. 
+  
   Lemma newlock_spec tid P (ths: list (fmrole spinlock_model)) fs
         (THSn0: ths ≠ []) (FUELS: fuels_ge fs 20):
     {{{ P ∗ has_fuels tid (list_to_set ths) fs ∗
@@ -718,7 +749,56 @@ Section MainProof.
           ([∗ set] i ∈ list_to_set (seq 0 (length ths)), thst_frag i 0) ∗
           (* (∃ fs, has_fuels tid (list_to_set ths) fs ∗ ⌜fuels_ge fs 18⌝) }}}. *)
           (has_fuels tid (list_to_set ths) ((fun f => f - 2) <$> fs)) }}}.
-  Proof. Admitted.
+  Proof.
+    iIntros (Φ) "(P & FUELS & ST) Kont". rewrite /newlock.
+    remember (list_to_set ths) as ths_set.
+    assert (ths_set ≠ ∅) as THSn0'.
+    { subst. destruct ths; [done| ].
+      apply (non_empty_inhabited_L f). set_solver. }
+
+    iDestruct (has_fuels_ge_S_exact with "FUELS") as "FUELS'"; eauto.
+    iApply wp_lift_pure_step_no_fork'; eauto.
+    do 3 iModIntro. simpl.
+    iFrame. iIntros "FUELS".
+    
+    iMod (own_alloc (Excl ())) as (γ) "LOCK"; [done| ].
+    
+    iDestruct (has_fuels_ge_S_exact 18 with "FUELS") as "FUELS"; eauto.
+    { admit. }
+    (* TODO: fupd in goal is needed to create invariant *)
+    wp_bind (Alloc _)%E.
+    iApply (wp_alloc_nostep with "[FUELS]"); eauto.
+
+    iNext. iIntros (l) "(L & _ & FUELS)".
+    
+
+    (* (* TODO: resources disappear? *) *)
+    (* (* iApply (fupd_mono with "[-Kont]"). *) *)
+
+    rewrite <- map_fmap_compose. simpl.
+
+    
+    
+    iApply fupd_wp. 
+    iMod (inv_alloc Ns _ (∃ v st, model_inv_impl st ∗ lock_inv_impl v l γ P ∗
+                                                 model_lock_corr_impl v st)%I with "[-Kont]") as "INV".
+    { iNext. rewrite /model_inv_impl /lock_inv_impl /model_lock_corr_impl.
+
+    
+    iApply "Kont". iExists γ.
+    iSplitR "FUELS".
+    2: { iExists _. by iFrame. }
+
+
+    
+    rewrite /spinlock_inv.
+    
+    
+    do 2 iExists _.
+    iFrame.
+    eauto.
+    
+  Admitted.
 
   Lemma has_fuels_equiv_args tid (R1 R2: gset (fmrole spinlock_model))
         (FS1 FS2: gmap (fmrole spinlock_model) nat)
