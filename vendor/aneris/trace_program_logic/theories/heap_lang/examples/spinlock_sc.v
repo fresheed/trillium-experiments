@@ -623,7 +623,18 @@ Section ClientProofs.
     apply lookup_fmap_Some. exists (f - 1). split.
     { red in FUELS_GE. specialize (FUELS_GE _ _ TT). lia. }
     apply lookup_fmap_Some. eauto.
-  Qed.    
+  Qed.
+
+  Lemma fuels_ge_minus1 fs b (FUELS_GE: fuels_ge fs (S b)):
+    fuels_ge ((λ f, f - 1) <$> fs) b.
+  Proof. 
+    red. intros.
+    pose proof (elem_of_dom_2 _ _ _ FUEL) as DOM.
+    rewrite dom_fmap_L in DOM.
+    simpl in FUEL.
+    apply lookup_fmap_Some in FUEL as (f' & <- & FUEL).
+    red in FUELS_GE. specialize (FUELS_GE _ _ FUEL). lia.
+  Qed. 
     
   Lemma has_fuels_ge_S b tid ths (fs: gmap (fmrole spinlock_model) nat)
         (FUELS_GE: fuels_ge fs (S b)):
@@ -632,12 +643,7 @@ Section ClientProofs.
     iIntros "FUELS".
     iDestruct (has_fuels_ge_S_exact with "FUELS") as "FUELS"; eauto.
     iExists _. iFrame. 
-    iPureIntro. red. intros.
-    pose proof (elem_of_dom_2 _ _ _ FUEL) as DOM.
-    rewrite dom_fmap_L in DOM.
-    simpl in FUEL.
-    apply lookup_fmap_Some in FUEL as (f' & <- & FUEL).
-    red in FUELS_GE. specialize (FUELS_GE _ _ FUEL). lia. 
+    iPureIntro. by apply fuels_ge_minus1. 
   Qed.
     
   (* Lemma newlock_spec tid P (ths: list (fmrole spinlock_model)) fs *)
@@ -737,8 +743,30 @@ Section MainProof.
     iApply big_sepS_singleton.
     iExists _. iFrame. iPureIntro. rewrite lookup_app_r; [| lia].
     by rewrite LEN PeanoNat.Nat.sub_diag. 
+  Qed.
+
+  Lemma repeat_lookup {A: Type} (v: A) (n i: nat) (DOM: i < n):
+    (repeat v n) !! i = Some v.
+  Proof.
+    generalize dependent i. induction n; [lia| ].
+    intros i DOM. simpl. destruct i; auto.
+    simpl. apply IHn. lia.
+  Qed.
+
+  Lemma has_fuels_funext tid ths (fs: gmap (fmrole spinlock_model) nat) g1 g2
+        (EXT: forall n, g1 n = g2 n):
+    has_fuels tid ths (g1 <$> fs) -∗ has_fuels tid ths (g2 <$> fs).
+  Proof.
+    iIntros "FUELS". rewrite /has_fuels.
+    iDestruct "FUELS" as "(? & ? & FUELS)".
+    repeat rewrite dom_fmap_L. iFrame.
+    iApply (big_sepS_impl with "[$]").
+    iModIntro. iIntros (x DOM) "(%ITH & % & ?)".
+    iExists _. iFrame. iPureIntro. erewrite map_fmap_ext.
+    2: { intros. symmetry. apply EXT. }
+    auto.
   Qed. 
-  
+
   Lemma newlock_spec tid P (ths: list (fmrole spinlock_model)) fs
         (THSn0: ths ≠ []) (FUELS: fuels_ge fs 20):
     {{{ P ∗ has_fuels tid (list_to_set ths) fs ∗
@@ -749,7 +777,8 @@ Section MainProof.
           ([∗ set] i ∈ list_to_set (seq 0 (length ths)), thst_frag i 0) ∗
           (* (∃ fs, has_fuels tid (list_to_set ths) fs ∗ ⌜fuels_ge fs 18⌝) }}}. *)
           (has_fuels tid (list_to_set ths) ((fun f => f - 2) <$> fs)) }}}.
-  Proof.
+  (* Proof. *)
+  Proof using Ns heapGS0 spinlockPreG0 Σ. 
     iIntros (Φ) "(P & FUELS & ST) Kont". rewrite /newlock.
     remember (list_to_set ths) as ths_set.
     assert (ths_set ≠ ∅) as THSn0'.
@@ -764,41 +793,53 @@ Section MainProof.
     iMod (own_alloc (Excl ())) as (γ) "LOCK"; [done| ].
     
     iDestruct (has_fuels_ge_S_exact 18 with "FUELS") as "FUELS"; eauto.
-    { admit. }
+    { by apply fuels_ge_minus1. }
     (* TODO: fupd in goal is needed to create invariant *)
     wp_bind (Alloc _)%E.
     iApply (wp_alloc_nostep with "[FUELS]"); eauto.
 
     iNext. iIntros (l) "(L & _ & FUELS)".
     
-
     (* (* TODO: resources disappear? *) *)
     (* (* iApply (fupd_mono with "[-Kont]"). *) *)
 
     rewrite <- map_fmap_compose. simpl.
 
+    iMod (thread_gnames_allocation (base.length ths)) as "[%tgns [%TGNS_LEN TGNS]]".
+
+    set (slg := {| thread_gnames := tgns; threadG := @thread_preG _ spinlockPreG0;
+                   lockG := @lock_preG _ spinlockPreG0 |}).
     
+    iAssert (([∗ set] i ∈ list_to_set (seq 0 (base.length ths)), thst_frag i 0) ∗
+             ([∗ set] i ∈ list_to_set (seq 0 (base.length ths)), thst_auth i 0))%I with "[TGNS]" as "[FRAGS AUTHS]". 
+    { iApply big_sepS_sep. iApply (big_sepS_impl with "[$]").
+      iModIntro. clear dependent γ. iIntros (i DOM) "[%γ (%ITH & AUTH & FRAG)]".
+      rewrite /thst_auth /thst_frag.
+      iApply bi.sep_exist_r. iExists _. iFrame.
+      iApply bi.sep_exist_l. iExists _. iFrame. done. } 
     
     iApply fupd_wp. 
     iMod (inv_alloc Ns _ (∃ v st, model_inv_impl st ∗ lock_inv_impl v l γ P ∗
-                                                 model_lock_corr_impl v st)%I with "[-Kont]") as "INV".
-    { iNext. rewrite /model_inv_impl /lock_inv_impl /model_lock_corr_impl.
+                                                 model_lock_corr_impl v st)%I with "[-Kont FRAGS FUELS]") as "INV".
+    2: { iModIntro. iApply wp_value. iApply "Kont".
+         do 2 iExists _. iFrame.
+         iApply (has_fuels_funext with "[$]"). intros. simpl. lia. }
+    iNext. rewrite /model_inv_impl /lock_inv_impl /model_lock_corr_impl.
+    do 2 iExists _. iFrame.
+    rewrite TGNS_LEN. iSplitL "AUTHS".
+    { iSplitR ""; [| iPureIntro; by rewrite repeat_length].
+      iApply (big_sepS_impl with "[$]").
+      iModIntro. clear dependent γ. iIntros (i DOM) "AUTH".
+      iExists 0. iFrame. iPureIntro.
+      apply repeat_lookup. 
+      apply elem_of_list_to_set, elem_of_seq in DOM. simpl in DOM. lia. }
 
-    
-    iApply "Kont". iExists γ.
-    iSplitR "FUELS".
-    2: { iExists _. by iFrame. }
-
-
-    
-    rewrite /spinlock_inv.
-    
-    
-    do 2 iExists _.
-    iFrame.
-    eauto.
-    
-  Admitted.
+    iSplitR "".
+    { iLeft. by iFrame. }
+    iLeft. iPureIntro. split; auto. constructor.
+    pose proof (lookup_lt_Some _ _ _ JV) as DOM. rewrite repeat_length in DOM. 
+    rewrite repeat_lookup in JV; auto. congruence. 
+  Qed. 
 
   Lemma has_fuels_equiv_args tid (R1 R2: gset (fmrole spinlock_model))
         (FS1 FS2: gmap (fmrole spinlock_model) nat)
@@ -921,4 +962,5 @@ Section MainProof.
     rewrite /has_fuels. by iDestruct "FUELS" as "[? _]". 
 
   Qed.
-  
+
+End MainProof. 
