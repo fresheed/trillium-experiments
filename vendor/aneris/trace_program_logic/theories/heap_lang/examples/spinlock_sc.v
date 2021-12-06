@@ -86,49 +86,25 @@ Section SpinlockDefs.
   Definition client : val :=
     λ: "l", acquire "l" ;; release "l".
 
-(* End SpinlockCode. *)
-
-(* Section SpinlockModel. *)
-  
-  (* (* Used as a role and piece of state *) *)
-  (* Inductive thread_index := ti0 | ti1 | ti2. *)
-
-  (* Global Instance ti_eqdec: EqDecision thread_index. *)
-  (* Proof. solve_decision. Qed. *)
-
-  (* Global Instance ti_countable: Countable thread_index.  *)
-  (* Proof.     *)
-  (*   refine ({| *)
-  (*              encode ti := match ti with | ti0 => 1 | ti1 => 2 | ti2 => 3 end; *)
-  (*              decode n := match n with | 1 => Some ti0 | 2 => Some ti1 *)
-  (*                                  | 3 => Some ti2 | _ => None *)
-  (*                          end *)
-  (*            |})%positive. *)
-  (*   intros yn. by destruct yn. *)
-  (* Qed. *)
-
-  (* Global Instance ti_inhabited: Inhabited thread_index. *)
-  (* Proof. exact (populate ti0). Qed. *)
-
-  (* (* See paper notes *) *)
-
   Definition spinlock_state := list nat.
 
   Definition state_unlocked (st: spinlock_state) :=
-    forall j v (JV: st !! j = Some v), v = 0 \/ v = 2.
+    forall j v (JV: st !! j = Some v), v = 0 \/ v >= 2.
 
   Definition state_locked_by (st: spinlock_state) (i: nat) :=
     st !! i = Some 1 /\
-    (forall j v (JV: st !! j = Some v) (JNI: not (j = i)), v = 0 \/ v = 2). 
+    (forall j v (JV: st !! j = Some v) (JNI: not (j = i)), v = 0 \/ v >= 2). 
 
   (* 0: empty, 1: has lock, 2: finished *)
   Inductive spinlock_model_step
     : spinlock_state -> option nat -> spinlock_state -> Prop :=
-  | sm_lock st i (READYi: st !! i = Some 0) (UNLOCKED: state_unlocked st):
+  | sm_lock st i v (READYi: st !! i = Some v) (V2: v >= 2)
+            (UNLOCKED: state_unlocked st):
       spinlock_model_step st (Some i) (<[i:=1]> st)
   | sm_unlock st i (LOCKi: state_locked_by st i):
-      spinlock_model_step st (Some i) (<[i:=2]> st)
-  | sm_stutter st i (LOCKED: exists j, state_locked_by st j) (READYi: st !! i = Some 0):
+      spinlock_model_step st (Some i) (<[i:=0]> st)
+  | sm_stutter st i v (LOCKED: exists j, state_locked_by st j)
+               (READYi: st !! i = Some v) (V2: v >= 2):
       spinlock_model_step st (Some i) st
   .
 
@@ -138,7 +114,7 @@ Section SpinlockDefs.
   Proof. inversion STEP; try rewrite insert_length; auto. Qed. 
 
   Definition spinlock_lr (st: spinlock_state): gset nat :=
-    list_to_set (filter (fun n => default 2 (st !! n) <? 2)
+    list_to_set (filter (fun n => 0 <? default 0 (st !! n))
                         (seq 0 (length st))).
                           
   Definition spinlock_model: FairModel.
@@ -155,13 +131,13 @@ Section SpinlockDefs.
       inversion H; subst. 
       - split.
         + apply in_seq. apply lookup_lt_Some in READYi. lia. 
-        + apply PeanoNat.Nat.ltb_lt. rewrite READYi. auto. 
+        + apply PeanoNat.Nat.ltb_lt. rewrite READYi. simpl. lia.  
       - destruct LOCKi as [LOCKi _]. split.
         + apply in_seq. apply lookup_lt_Some in LOCKi. lia. 
         + apply PeanoNat.Nat.ltb_lt. rewrite LOCKi. auto. 
       - split.
         + apply in_seq. apply lookup_lt_Some in READYi. lia. 
-        + apply PeanoNat.Nat.ltb_lt. rewrite READYi. auto. }
+        + apply PeanoNat.Nat.ltb_lt. rewrite READYi. simpl. lia. }
     { intros. unfold spinlock_lr in *. 
       apply elem_of_list_to_set, elem_of_list_In, filter_In.
       apply elem_of_list_to_set, elem_of_list_In, filter_In in H0 as [IN' DOM'].
@@ -281,7 +257,7 @@ Section ClientProofs.
   Qed.
 
   Lemma live_roles_preservation st (th: fmrole spinlock_model) v
-        (THST01 : st !! th = Some 0 \/ st !! th = Some 1):
+        (THST01 : 0 < default 0 (st !! th)):
     live_roles spinlock_model (<[th:=v]> st) ⊆ live_roles spinlock_model st.
   Proof. 
     simpl. rewrite /spinlock_lr.
@@ -291,50 +267,10 @@ Section ClientProofs.
     split.
     { erewrite <- insert_length. eauto. }
     destruct (dec_eq_nat ρ th) as [-> | ?]. 
-    {
-      (* destruct THST01 as [-> | ->]. *)
-      destruct THST01 as [R | R]; by rewrite R. }
+    { by apply Nat.ltb_lt. }
     rewrite list_lookup_insert_ne in FLT; auto. 
   Qed.
 
-
-  (* Lemma lock_preserves_live_roles st th (THST0 : st !! th = Some 0): *)
-  (*   live_roles spinlock_model (<[th:=1]> st) ⊆ live_roles spinlock_model st. *)
-  (* Proof.  *)
-  (*   simpl. rewrite /spinlock_lr. *)
-  (*   apply elem_of_subseteq. intros ρ IN. *)
-  (*   apply elem_of_list_to_set, elem_of_list_In, filter_In.  *)
-  (*   apply elem_of_list_to_set, elem_of_list_In, filter_In in IN as [IN FLT]. *)
-  (*   split. *)
-  (*   { erewrite <- insert_length. eauto. } *)
-  (*   destruct (dec_eq_nat ρ th) as [-> | ?].  *)
-  (*   { by rewrite THST0. } *)
-  (*   rewrite list_lookup_insert_ne in FLT; auto.  *)
-  (* Qed. *)
-
-  (* Lemma finish_preserves_live_roles st th: *)
-  (*   live_roles spinlock_model (<[th:=2]> st) ⊆ live_roles spinlock_model st. *)
-  (* Proof.  *)
-  (*   simpl. rewrite /spinlock_lr. *)
-  (*   apply elem_of_subseteq. intros ρ IN. *)
-  (*   apply elem_of_list_to_set, elem_of_list_In, filter_In.  *)
-  (*   apply elem_of_list_to_set, elem_of_list_In, filter_In in IN as [IN FLT]. *)
-  (*   split. *)
-  (*   { erewrite <- insert_length. eauto. } *)
-  (*   destruct (dec_eq_nat ρ th) as [-> | ?].  *)
-  (*   { by rewrite THST0. } *)
-  (*   rewrite list_lookup_insert_ne in FLT; auto.  *)
-  (* Qed. *)
-
-  (* Lemma missed_elem_replacement *)
-  (*   "AUTHS'" : [∗ set] y ∈ (list_to_set (seq 0 (base.length thread_gnames)) *)
-  (*                         ∖ {[th]}), ∃ v : nat, *)
-  (*                                      ⌜st !! y = Some v⌝ ∗ thst_auth y v *)
-
-  (* Lemma st_change_helper th v': *)
-  (*   thst_auth th v' -∗ (∃ v, bi_pure ((<th:=v'> st) !! th = Some v) ∗ thst_auth y v'). *)
-  (*   iAssert %I as "foo". *)
-  (*              "THST_AUTH" : *)
   Lemma model_inv_helper th v' (st: list nat)
         (LENGTHS: length st = length thread_gnames):
     (([∗ set] y ∈ (list_to_set (seq 0 (length thread_gnames)) ∖ {[th]}),
@@ -392,7 +328,7 @@ Section ClientProofs.
 
   Lemma state_becomes_unlocked st th (LOCKED: state_locked_by st th)
         (DOM: th < length st):
-    state_unlocked (<[th:=2]> st).
+    state_unlocked (<[th:=0]> st).
   Proof.
     red. intros.
     destruct (dec_eq_nat j th) as [-> | ?].
@@ -409,7 +345,7 @@ Section ClientProofs.
 
   Lemma nonfinished_role_is_alive th st v (DOM: th < length st)
         (THV: st !! th = Some v)
-        (NONFIN: v < 2):
+        (NONFIN: 0 < v):
     th ∈ live_roles spinlock_model st.
   Proof.
     simpl. unfold spinlock_lr.
@@ -419,7 +355,7 @@ Section ClientProofs.
   Qed. 
       
   Lemma acquire_spec_term tid l γ P f (FUEL: f > 5) th:
-    {{{ spinlock_inv l γ P ∗ has_fuel tid th f ∗ thst_frag th 0 }}}
+    {{{ spinlock_inv l γ P ∗ has_fuel tid th f ∗ thst_frag th 2 }}}
       acquire #l @ tid
     {{{ RET #(); P ∗ locked γ ∗ thst_frag th 1 ∗ ∃ f, has_fuel tid th f ∗ ⌜f > 4 ⌝}}}.
   Proof.
@@ -454,7 +390,7 @@ Section ClientProofs.
       all: eauto. 
       { simpl. lia. }
       { econstructor; eauto. }
-      { apply live_roles_preservation. eauto. }
+      { apply live_roles_preservation. rewrite THST_V. simpl. lia. }
 
       do 2 iModIntro. iIntros "(L & ST & FUEL)".
       iMod ((thst_update th 1) with "[THST_AUTH THST_FRAG]")
@@ -519,7 +455,7 @@ Section ClientProofs.
   Lemma release_spec_term tid l γ P f (FUEL: f > 2) (th: fmrole spinlock_model):
     {{{ spinlock_inv l γ P ∗ P ∗ locked γ ∗ thst_frag th 1 ∗ has_fuel tid th f }}}
       release #l @ tid
-    {{{ RET #(); tid ↦M ∅ ∗ thst_frag th 2 }}}.
+    {{{ RET #(); tid ↦M ∅ ∗ thst_frag th 0 }}}.
   Proof.
     iIntros (Φ) "(#INV & P & LOCKED & THST_FRAG & FUEL) Kont". rewrite /release.
     iDestruct (thst_frag_bound with "THST_FRAG") as "%TH_BOUND".
@@ -551,11 +487,11 @@ Section ClientProofs.
 
     destruct f; [lia| ]. 
     rewrite {2}/model_inv_impl. iDestruct "MODEL" as "(ST & AUTHS & %LENGTH)". 
-    iApply ((wp_store_step_singlerole _ tid th _ 10%nat st (<[th:=2]> st)) with "[L ST FUEL]").
+    iApply ((wp_store_step_singlerole _ tid th _ 10%nat st (<[th:=0]> st)) with "[L ST FUEL]").
     all: eauto.
     { simpl. lia. }
     { by econstructor. }
-    { apply live_roles_preservation. destruct ST_LOCKED. eauto. }
+    { apply live_roles_preservation. destruct ST_LOCKED. rewrite H. simpl. lia. }
     { iFrame. }
     do 2 iModIntro. iIntros "(L & ST & FUEL)".
     rewrite decide_False.
@@ -569,7 +505,7 @@ Section ClientProofs.
     { apply elem_of_list_to_set, elem_of_list_In. apply in_seq. simpl.
       split; [lia| eauto]. }
     iDestruct "TH_AUTH" as (v) "[%TH_V THST_AUTH]".
-    iMod ((thst_update th 2) with "[THST_AUTH THST_FRAG]")
+    iMod ((thst_update th 0) with "[THST_AUTH THST_FRAG]")
         as "[THST_AUTH THST_FRAG]"; [by iFrame| ].
     iFrame. 
 
@@ -585,7 +521,7 @@ Section ClientProofs.
     
     
   Lemma client_terminates tid l γ P f th (FUEL: f > 12) :
-    {{{ spinlock_inv l γ P ∗ has_fuel tid th f ∗ thst_frag th 0}}}
+    {{{ spinlock_inv l γ P ∗ has_fuel tid th f ∗ thst_frag th 2}}}
       client #l @ tid
     {{{ RET #(); tid ↦M ∅  }}}.
   Proof.
@@ -645,59 +581,7 @@ Section ClientProofs.
     iExists _. iFrame. 
     iPureIntro. by apply fuels_ge_minus1. 
   Qed.
-    
-  (* Lemma newlock_spec tid P (ths: list (fmrole spinlock_model)) fs *)
-  (*       (THSn0: ths ≠ []) (FUELS: fuels_ge fs 20): *)
-  (*   {{{ P ∗ has_fuels tid (list_to_set ths) fs ∗ *)
-  (*         frag_model_is (repeat 0 (length thread_gnames)) }}} *)
-  (*     newlock #() @ tid *)
-  (*   {{{ l, RET #l; ∃ γ, spinlock_inv l γ P ∗ *)
-  (*                  (∃ fs, has_fuels tid (list_to_set ths) fs ∗  *)
-  (*                         ⌜fuels_ge fs 18⌝)  }}}. *)
-  (* Proof. *)
-  (*   iIntros (Φ) "(P & FUELS & ST) Kont". rewrite /newlock. *)
-  (*   remember (list_to_set ths) as ths_set. *)
-  (*   assert (ths_set ≠ ∅) as THSn0'. *)
-  (*   { subst. destruct ths; [done| ].  *)
-  (*     apply (non_empty_inhabited_L f). set_solver. } *)
-
-  (*   iDestruct (has_fuels_ge_S with "FUELS") as "[%fs' [FUELS' %GE']]"; eauto.  *)
-  (*   iApply wp_lift_pure_step_no_fork'; eauto.  *)
-  (*   do 3 iModIntro. simpl.  *)
-  (*   iFrame. clear dependent fs. iIntros "FUELS". *)
-    
-  (*   iMod (own_alloc (Excl ())) as (γ) "LOCK"; [done| ]. *)
-
-  (*   iDestruct (has_fuels_ge_S with "FUELS") as "[%fs [FUELS %GE]]"; eauto.  *)
-  (*   (* TODO: fupd in goal is needed to create invariant *) *)
-  (*   wp_bind (Alloc _)%E.  *)
-  (*   iApply (wp_alloc_nostep with "[FUELS]"); eauto. *)
-
-  (*   iNext. iIntros (l) "(L & _ & FUELS)".  *)
-
-  (*   (* (* TODO: resources disappear? *) *) *)
-  (*   (* (* iApply (fupd_mono with "[-Kont]"). *) *) *)
-    
-  (*   iApply fupd_wp. *)
-  (*   iMod (inv_alloc Ns _ (∃ v st, model_inv_impl st ∗ lock_inv_impl v l γ P ∗ *)
-  (*                                                model_lock_corr_impl v st)%I with "[-Kont]") as "INV". *)
-  (*   { iNext. rewrite /model_inv_impl /lock_inv_impl /model_lock_corr_impl.   *)
-
-    
-  (*   iApply "Kont". iExists γ. *)
-  (*   iSplitR "FUELS". *)
-  (*   2: { iExists _. by iFrame. } *)
-
-
-    
-  (*   rewrite /spinlock_inv. *)
-    
-    
-  (*   do 2 iExists _. *)
-  (*   iFrame. *)
-  (*   eauto.  *)
-  (* Qed.  *)
-      
+          
 End ClientProofs.
 
 
@@ -709,23 +593,15 @@ Section MainProof.
     let: "l" := newlock #() in
     ((Fork (client "l") ) ;; (Fork (client "l") )).
 
-  (* Lemma fmap_comp (g1 g2: nat -> nat) (fs: gmap (fmrole spinlock_model) nat): *)
-  (*   g1 <$> (g2 <$> fs) = (fun n => g1 (g2 n)) <$> fs. *)
-  (* Proof. *)
-  (*   apply gmap_eq. unfold gmap_car. simpl.  *)
-  (*   apply leibniz_equiv. red. red. intros ρ. red. red.  *)
-
-  Definition m1 := fun (f: nat) => f - 1.
-
   (* TODO: use set_seq instead of list_to_set *)
-  Lemma thread_gnames_allocation n:
+  Lemma thread_gnames_allocation n v:
     ⊢ (|==> ∃ (tgns: list gname), ⌜length tgns = n⌝ ∗
         ([∗ set] i ∈ list_to_set (seq 0 n), 
-         ∃ γ, ⌜tgns !! i = Some γ⌝ ∗ own γ (●E 0) ∗ own γ (◯E 0)))%I.
+         ∃ γ, ⌜tgns !! i = Some γ⌝ ∗ own γ (●E v) ∗ own γ (◯E v)))%I.
   Proof.
     iInduction n as [| n'] "IH".
     { iModIntro. iExists []. iSplit; done. }
-    iMod (own_alloc (●E 0  ⋅ ◯E 0)) as (γ) "[AUTH FRAG]".
+    iMod (own_alloc (●E v  ⋅ ◯E v)) as (γ) "[AUTH FRAG]".
     { apply auth_both_valid_2; eauto. by compute. }
     iMod "IH" as (tgns) "[%LEN IH]". iModIntro.
     (* appending to the end to obtain the same domain and reuse IH *)
@@ -770,11 +646,11 @@ Section MainProof.
   Lemma newlock_spec tid P (ths: list (fmrole spinlock_model)) fs
         (THSn0: ths ≠ []) (FUELS: fuels_ge fs 20):
     {{{ P ∗ has_fuels tid (list_to_set ths) fs ∗
-          frag_model_is (repeat 0 (length ths)) }}}
+          frag_model_is (repeat 2 (length ths)) }}}
       newlock #() @ tid
     {{{ l, RET #l; ∃ γ (slG: spinlockG Σ),
           spinlock_inv l γ P ∗
-          ([∗ set] i ∈ list_to_set (seq 0 (length ths)), thst_frag i 0) ∗
+          ([∗ set] i ∈ list_to_set (seq 0 (length ths)), thst_frag i 2) ∗
           (* (∃ fs, has_fuels tid (list_to_set ths) fs ∗ ⌜fuels_ge fs 18⌝) }}}. *)
           (has_fuels tid (list_to_set ths) ((fun f => f - 2) <$> fs)) }}}.
   (* Proof. *)
@@ -805,18 +681,18 @@ Section MainProof.
 
     rewrite <- map_fmap_compose. simpl.
 
-    iMod (thread_gnames_allocation (base.length ths)) as "[%tgns [%TGNS_LEN TGNS]]".
+    iMod (thread_gnames_allocation (base.length ths) 2) as "[%tgns [%TGNS_LEN TGNS]]".
 
     set (slg := {| thread_gnames := tgns; threadG := @thread_preG _ spinlockPreG0;
                    lockG := @lock_preG _ spinlockPreG0 |}).
     
-    iAssert (([∗ set] i ∈ list_to_set (seq 0 (base.length ths)), thst_frag i 0) ∗
-             ([∗ set] i ∈ list_to_set (seq 0 (base.length ths)), thst_auth i 0))%I with "[TGNS]" as "[FRAGS AUTHS]". 
+    iAssert (([∗ set] i ∈ list_to_set (seq 0 (base.length ths)), thst_frag i 2) ∗
+             ([∗ set] i ∈ list_to_set (seq 0 (base.length ths)), thst_auth i 2))%I with "[TGNS]" as "[FRAGS AUTHS]". 
     { iApply big_sepS_sep. iApply (big_sepS_impl with "[$]").
       iModIntro. clear dependent γ. iIntros (i DOM) "[%γ (%ITH & AUTH & FRAG)]".
       rewrite /thst_auth /thst_frag.
       iApply bi.sep_exist_r. iExists _. iFrame.
-      iApply bi.sep_exist_l. iExists _. iFrame. done. } 
+      iApply bi.sep_exist_l. iExists _. iFrame. done. }
     
     iApply fupd_wp. 
     iMod (inv_alloc Ns _ (∃ v st, model_inv_impl st ∗ lock_inv_impl v l γ P ∗
@@ -830,15 +706,15 @@ Section MainProof.
     { iSplitR ""; [| iPureIntro; by rewrite repeat_length].
       iApply (big_sepS_impl with "[$]").
       iModIntro. clear dependent γ. iIntros (i DOM) "AUTH".
-      iExists 0. iFrame. iPureIntro.
+      iExists 2. iFrame. iPureIntro.
       apply repeat_lookup. 
       apply elem_of_list_to_set, elem_of_seq in DOM. simpl in DOM. lia. }
 
     iSplitR "".
     { iLeft. by iFrame. }
-    iLeft. iPureIntro. split; auto. constructor.
+    iLeft. iPureIntro. split; auto. red. intros. 
     pose proof (lookup_lt_Some _ _ _ JV) as DOM. rewrite repeat_length in DOM. 
-    rewrite repeat_lookup in JV; auto. congruence. 
+    rewrite repeat_lookup in JV; auto. inversion JV. lia. 
   Qed. 
 
   Lemma has_fuels_equiv_args tid (R1 R2: gset (fmrole spinlock_model))
@@ -870,7 +746,7 @@ Section MainProof.
     
   Lemma program_spec tid (P: iProp Σ):
     (* {{{ frag_model_is [0; 0] ∗ has_fuels tid {[ 0; 1 ]} fs ∗ P }}} *)
-    {{{ frag_model_is [0; 0] ∗ P ∗ 
+    {{{ frag_model_is [2; 2] ∗ P ∗ 
       has_fuels tid {[0; 1]} {[ 0:=25; 1:=25 ]} }}}
       program @ tid
     {{{ RET #(); tid ↦M ∅ }}}.
