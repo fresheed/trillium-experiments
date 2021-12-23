@@ -14,7 +14,7 @@ From iris.bi Require Import bi.
 Import derived_laws_later.bi.
 
 Require Import List.
-Import ListNotations. 
+Import ListNotations.
 
 Set Default Proof Using "Type".
 
@@ -124,7 +124,7 @@ Section SpinlockDefs.
         fmrole := nat;
         fmtrans := spinlock_model_step;
         live_roles := spinlock_lr;
-        fuel_limit _ := 10%nat; (* don't know yet *)
+        fuel_limit _ := 25%nat; (* exact value; should relax its usage *)
              |}). 
     { intros. unfold spinlock_lr.
       apply elem_of_list_to_set, elem_of_list_In, filter_In.
