@@ -86,6 +86,7 @@ Section SpinlockDefs.
   Definition client : val :=
     λ: "l", acquire "l" ;; release "l".
 
+  (* 2: not started yet, 1: has lock, 0: finished *)
   Definition spinlock_state := list nat.
 
   Definition state_unlocked (st: spinlock_state) :=
@@ -95,7 +96,6 @@ Section SpinlockDefs.
     st !! i = Some 1 /\
     (forall j v (JV: st !! j = Some v) (JNI: not (j = i)), v = 0 \/ v >= 2). 
 
-  (* 0: empty, 1: has lock, 2: finished *)
   Inductive spinlock_model_step
     : spinlock_state -> option nat -> spinlock_state -> Prop :=
   | sm_lock st i v (READYi: st !! i = Some v) (V2: v >= 2)

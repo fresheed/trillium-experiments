@@ -48,4 +48,5 @@ theories/heap_lang/lifting.v
 theories/heap_lang/examples/yesno.v
 theories/heap_lang/examples/yesno_adequacy.v
 theories/heap_lang/examples/spinlock_sc.v
+theories/heap_lang/examples/fair_termination_natural.v
 theories/heap_lang/examples/spinlock_sc_adequacy.v
