@@ -1,3 +1,12 @@
+# Using Trillium for lock termination proofs
+	
+This branch contains the proof that spinlock terminates under SC and fair scheduler.
+
+- `trace_program_logic/theories/heap_lang/examples/fair_termination_natural.v` - a typeclass of fair models supporting non-deterministic transitions.
+- `trace_program_logic/theories/heap_lang/examples/spinlock_sc.v` - the definition of a spinlock, its model and proof of the refinement between them.
+- `trace_program_logic/theories/heap_lang/examples/spinlock_sc_adequacy.v` - proof that spinlock model is fair and thus terminating.
+
+
 # Aneris
 [![CI](https://github.com/logsem/aneris/workflows/CI/badge.svg?branch=master)](https://github.com/logsem/aneris/actions?query=workflow%3ACI)
 
